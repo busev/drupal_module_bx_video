@@ -1,0 +1,9 @@
+name = Раздел видео
+description = Получение списка видео из Битрикса и публикация на страницах.
+package = Alutech inc.
+core = 7.x
+version = 7.x-1.0
+
+stylesheets[all][] = video-css.css
+scripts[] = owl.carousel.min.js
+scripts[] = video-carousel.js

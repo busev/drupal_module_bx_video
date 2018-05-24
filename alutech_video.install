@@ -1,0 +1,176 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: busev
+ * Date: 11.05.2018
+ * Time: 8:18
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function alutech_video_uninstall()
+{
+	cache_clear_all('alutech_video', 'cache', TRUE);
+	drupal_uninstall_schema('alutech_video_sections');
+	drupal_uninstall_schema('alutech_video_elements');
+	menu_rebuild();
+}
+
+/**
+ * Implements hook_schema().
+ *
+ */
+function alutech_video_schema()
+{
+	$schema['alutech_video_sections'] = array(
+		'description' => 'Custom table for sections from alutech_video module.',
+		'fields' => array(
+			'id' => array(
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'name' => array(
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'depth_level' => array(
+				'type' => 'varchar',
+				'length' => 32,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'iblock_section_id' => array(
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'code' => array(
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'default' => '',
+			),
+		),
+		'primary key' => array('id'),
+		'unique keys' => array(
+			'code' => array('code'),
+		),
+	);
+
+	$schema['alutech_video_elements'] = array(
+		'description' => 'Custom table for elements from alutech_video module.',
+		'fields' => array(
+			'id' => array(
+				'description' => 'ID.',
+				'type' => 'serial',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+			),
+			'el_id' => array(
+				'description' => 'Video ID.',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'not null' => TRUE,
+				'default' => 0,
+			),
+			'lang' => array(
+				'description' => 'The language path prefix to use for this video.',
+				'type' => 'varchar',
+				'length' => 16,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'iblock_section_id' => array(
+				'description' => 'Video section id.',
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'name' => array(
+				'description' => 'Name of the video.',
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'active_from' => array(
+				'description' => 'Activity date from.',
+				'type' => 'varchar',
+				'length' => 64,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'preview_picture' => array(
+				'description' => 'Preview picture.',
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'preview_text' => array(
+				'description' => 'Preview description of the video.',
+				'type' => 'text',
+				'size' => 'big',
+				'not null' => FALSE
+			),
+			'detail_text' => array(
+				'description' => 'Detailed description of the video.',
+				'type' => 'text',
+				'size' => 'big',
+				'not null' => FALSE
+			),
+			'url' => array(
+				'description' => 'Download link.',
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'size' => array(
+				'description' => 'The size of the file to download in bytes.',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'size' => 'big',
+				'not null' => TRUE,
+				'default' => 0,
+			),
+			'youtube' => array(
+				'description' => 'Link to YouTube.',
+				'type' => 'varchar',
+				'length' => 255,
+				'not null' => TRUE,
+				'default' => '',
+			),
+			'instrukciya' => array(
+				'description' => 'Is the video the instruction?',
+				'type' => 'int',
+				'unsigned' => TRUE,
+				'size' => 'tiny',
+				'not null' => TRUE,
+				'default' => 0,
+			),
+			'timestamp' => array(
+				'description' => 'UNIX timestamp for when the video was added.',
+				'type' => 'int',
+				'not null' => TRUE,
+				'default' => 0),
+		),
+		'indexes' => array(
+			'video_id' => array('el_id'),
+			'video_lang' => array('lang'),
+			'video_section' => array('iblock_section_id'),
+		),
+		'unique keys' => array(
+			'el_id_lang' => array('el_id', 'lang'),
+		),
+		'primary key' => array('id'),
+	);
+
+	return $schema;
+}

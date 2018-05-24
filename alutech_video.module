@@ -1,0 +1,576 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: busev
+ * Date: 11.05.2018
+ * Time: 10:14
+ */
+
+/**
+ * Implements hook_menu().
+ * задаем URL, его заголовок (title), описание (description), функция обработки (page callback), передаваемые аргументы (page arguments), параметры доступа (access arguments), тип (type) и «вес» (weight)
+ */
+function alutech_video_menu()
+{
+	$items = array();
+
+	$items['admin/content/video'] = array(
+		'title'            => t('Видео'),
+		'description'      => t('Видео подгружаемое из битрикса'),
+		'page callback'    => 'video_list',
+		'access arguments' => array('administer site configuration'),
+	);
+
+	$items['admin/content/video/list'] = array(
+		'title'  => t('Список видео'),
+		'type'   => MENU_DEFAULT_LOCAL_TASK,
+		'weight' => 1,
+	);
+
+	$items['admin/content/video/update'] = array(
+		'title'            => 'Обновить список',
+		'page callback'    => 'video_update',
+		'access arguments' => array('administer site configuration'),
+		'type'             => MENU_LOCAL_TASK,
+		'weight'           => 2,
+	);
+
+	$items['admin/content/video/%video/delete'] = array(
+		'title'            => t('Удалить видео'),
+		'page callback'    => 'video_delete',
+		'page arguments'   => array(3),
+		'access arguments' => array('administer site configuration'),
+		'type'             => MENU_CALLBACK,
+	);
+
+	$items['video'] = array(
+		'title'            => t('Video'),
+		'page callback'    => '_alutech_video_page',
+		'access callback'  => TRUE,
+		/*'type'             => MENU_NORMAL_ITEM,
+		'menu_name'        => $menu_name['menu_name'],
+		'options' => array(
+			'attributes' => array(
+				'class' => array('blueMenu')
+			)
+		),
+		'weight'           => 1000,*/
+	);
+
+	$items['video/%section'] = array(
+		'title'            => t('Video section'),
+		'page callback'    => '_alutech_video_page',
+		'page arguments'   => array(1),
+		'access callback'  => TRUE,
+		'type'             => MENU_CALLBACK,
+	);
+
+	$items['video/%section/%element'] = array(
+		'title'            => t('Video content'),
+		'page callback'    => 'alutech_video_content',
+		'page arguments'   => array(1, 2),
+		'access callback'  => TRUE,
+		'type'             => MENU_CALLBACK,
+	);
+
+	return $items;
+}
+
+/*
+ * функция вывода страницы со списком видео
+ * */
+function video_list()
+{
+	$header = array(
+		array('data' => t('ID видео')),
+		array('data' => t('Язык страницы')),
+		array('data' => t('ID раздела')),
+		array('data' => t('Название видео')),
+		array('data' => t('Начало активности')),
+		array('data' => t('Адрес на YouTube')),
+		array('data' => t('Создано')),
+		array('data' => t('Действие'))
+	);
+	$ob = db_select('alutech_video_elements', 'n')
+		->fields('n', array('id', 'lang', 'iblock_section_id', 'name', 'active_from', 'youtube', 'timestamp'))
+		->execute()->fetchAll();
+	$row = array();
+	if ($ob) {
+		foreach ($ob as $value) {
+			$row [] = array(
+				array('data' => $value->id),
+				array('data' => $value->lang),
+				array('data' => $value->iblock_section_id),
+				array('data' => $value->name),
+				array('data' => date("d.m.Y", $value->active_from)),
+				array('data' => $value->youtube),
+				array('data' => date("d.m.Y H:i:s", $value->timestamp)),
+				array('data' => l(t('Удалить'), 'admin/content/video/' . $value->id . '/delete')),
+			);
+		}
+	}
+
+	return theme('table', array(
+		'header' => $header,
+		'rows'   => $row,
+	));
+}
+
+/*
+ * Запуск обновления списков разделов и видео
+ * */
+function video_update()
+{
+	$arVideo = array();
+	$get = video_get_list();
+
+	if($get)
+	{
+		foreach ($get as $key => $value)
+			$arVideo[$key] = $value;
+
+		if(isset($arVideo['sections']))
+			video_sections_write($arVideo['sections']);
+
+		if(isset($arVideo['elements']))
+			video_elements_write($arVideo['elements']);
+	}
+	drupal_goto('admin/content/video');
+}
+
+/*
+ * Получение данных из Битрикса
+ * */
+function video_get_list()
+{
+	$ar_res = FALSE;
+
+	$url = 'http://alutech-group.com/api/bxVideo';
+
+	$request = drupal_http_request($url);
+	if(isset($request->data))
+		$json_response = drupal_json_decode($request->data);
+
+	if(isset($json_response) && !empty($json_response) && $json_response != NULL)
+		$ar_res = $json_response;
+
+	return $ar_res;
+}
+
+/*
+ * Добавление в БД списка разделов
+ * */
+function video_sections_write($sections)
+{
+	$sections = array_filter($sections);
+	if(!empty($sections))
+	{
+		foreach ($sections as $section)
+		{
+			$date = array(
+				'id' => $section['ID'],
+				'name' => !empty($section['UF_NAME_FOR_DRUPAL']) ? $section['UF_NAME_FOR_DRUPAL'] : $section['NAME'],
+				'depth_level' => $section['DEPTH_LEVEL'],
+				'iblock_section_id' => $section['IBLOCK_SECTION_ID'],
+				'code' => $section['CODE'],
+			);
+			if(!$sid = video_get_bd_section($section['ID']))
+				drupal_write_record('alutech_video_sections', $date);
+			else
+				drupal_write_record('alutech_video_sections', $date, 'id');
+		}
+		drupal_set_message(t('Обновлен список разделов'));
+	}
+}
+
+/*
+ * Добавление в БД списка видероликов
+ * */
+function video_elements_write($elements)
+{
+	$elements = array_filter($elements);
+	if(!empty($elements))
+	{
+		foreach ($elements as $element)
+		{
+			foreach ($element['LANG'] as $language)
+			{
+				if( isset($element['NAME_'.$language]) )
+				{
+					$n = trim($element['NAME_'.$language]);
+					if( !empty($n) )
+						$element['NAME'] = $n;
+				}
+
+				if( isset($element['PREVIEW_TEXT_'.$language]['TEXT']) )
+				{
+					$p_t = trim($element['PREVIEW_TEXT_'.$language]['TEXT']);
+					if( !empty($p_t) )
+						$element['PREVIEW_TEXT'] = decode_entities($p_t);
+				}
+
+				if( isset($element['DETAIL_TEXT_'.$language]['TEXT']) )
+				{
+					$d_t = trim($element['DETAIL_TEXT_'.$language]['TEXT']);
+					if( !empty($d_t) )
+						$element['DETAIL_TEXT'] = decode_entities($d_t);
+				}
+
+				$section = section_contents($element['IBLOCK_SECTION_ID']);
+				if( isset($section['iblock_section_id']) && $section['iblock_section_id'] != NULL )
+					$element['IBLOCK_SECTION_ID'] = $section['iblock_section_id'];
+
+				$instr = trim($element['INSTRUKCIYA']);
+
+				$date = array(
+					'el_id' => $element['ID'],
+					'lang' => $language,
+					'iblock_section_id' => $element['IBLOCK_SECTION_ID'],
+					'name' => $element['NAME'],
+					'active_from' => $element['ACTIVE_FROM'],
+					'preview_picture' => $element['PREVIEW_PICTURE'],
+					'preview_text' => $element['PREVIEW_TEXT'],
+					'detail_text' => $element['DETAIL_TEXT'],
+					'url' => $element['URL'],
+					'size' => $element['SIZE'],
+					'youtube' => $element['YOUTUBE'],
+					'instrukciya' => empty($instr) ? 0 : 1,
+					'timestamp' => time(),
+				);
+
+				if(!$vid = video_get_bd_element($element['ID'], $language))
+				{
+					drupal_write_record('alutech_video_elements', $date);
+				}
+				else
+				{
+					$date['id'] = $vid[0]->id;
+					drupal_write_record('alutech_video_elements', $date, 'id');
+				}
+			}
+
+		}
+		drupal_set_message(t('Обновлен список видеороликов'));
+	}
+}
+
+/*
+ * проверка на присутствие раздела в БД
+ * */
+function video_get_bd_section($id)
+{
+	$res = db_select('alutech_video_sections', 'n')
+		->fields('n')
+		->condition('n.id', $id)
+		->execute()
+		->fetchAll();
+
+	return $res;
+}
+
+/*
+ * проверка на присутствие видео в БД
+ * */
+function video_get_bd_element($vid, $l)
+{
+	$res = db_select('alutech_video_elements', 'n')
+		->fields('n')
+		->condition('n.el_id', $vid)
+		->condition('n.lang', $l)
+		->execute()
+		->fetchAll();
+
+	return $res;
+}
+
+/*
+ * удаление записей
+ * */
+function video_delete($video)
+{
+	$docs_deleted = db_delete('alutech_video_elements')
+		->condition('id', $video['id'])
+		->execute();
+	drupal_set_message(t('Видео успешно удалено'));
+	drupal_goto('admin/content/video');
+}
+
+/*
+ * определяем для $video с помощью hool_load() объект с данными
+ * */
+function video_load($id)
+{
+	$video = db_select('alutech_video_elements', 'n')
+		->fields('n', array('id'))
+		->condition('n.id', $id)
+		->execute()->fetchAssoc();
+
+	return $video;
+}
+
+/*
+ * определяем для $section с помощью hool_load() объект с данными
+ * */
+function section_load($code)
+{
+	$section = db_select('alutech_video_sections', 'n')
+		->fields('n', array('id', 'name', 'depth_level', 'iblock_section_id', 'code'))
+		->condition('n.code', $code)
+		->execute()->fetchAssoc();
+
+	if(!$section)
+		drupal_goto('video');
+	else
+		return $section;
+}
+
+/*
+ * определяем для $element с помощью hool_load() объект с данными
+ * */
+function element_load($id)
+{
+	global $language;
+
+	$element = db_select('alutech_video_elements', 'n')
+		->fields('n', array('id', 'el_id', 'iblock_section_id', 'name', 'active_from', 'preview_picture', 'preview_text', 'detail_text', 'url', 'size', 'youtube'))
+		->condition('n.el_id', $id)
+		->condition('n.lang', $language->prefix)
+		->execute()->fetchAssoc();
+
+	if(!$element)
+		drupal_goto('video');
+	else
+		return $element;
+}
+
+/*
+ * функция отображения страницы со списком всех видео
+ * */
+function _alutech_video_page($section = NULL)
+{
+	$breadcrumb = array();
+	$breadcrumb[] = l('Home', '<front>');
+	$breadcrumb[] = l(t('Video'), 'video');
+
+	if(isset($section))
+	{
+		drupal_set_title(t('Video').': '.t($section['name']));
+		$breadcrumb[] = l(t($section['name']), 'video/'.$section['code']);
+	}
+	else
+		drupal_set_title(t('Video').': '.t('All Videos'));
+
+	drupal_set_breadcrumb($breadcrumb);
+
+	$result = elements_contents($section['id']);
+
+	if (!$result)
+		drupal_goto('video');
+	else
+	{
+		foreach ($result as $value)
+		{
+			$code = section_contents($value->iblock_section_id);
+			if($code['depth_level'] > 1 && !empty($code['iblock_section_id']))
+			{
+				$codeint = section_contents($code['iblock_section_id']);
+				$value->code = section_contents($codeint['code']);
+			}
+			else
+				$value->code = $code['code'];
+
+			$links[] = $value;
+		}
+		$paging = theme('pager');
+		$page_array = theme('alutech_video_page', array('links' => $links, 'paging' => $paging));
+		return $page_array;
+	}
+}
+
+/*
+ * страница детального показа видео
+ * */
+function alutech_video_content($section, $element)
+{
+	$breadcrumb = array();
+	$breadcrumb[] = l('Home', '<front>');
+	$breadcrumb[] = l(t('Video'), 'video');
+	$breadcrumb[] = l(t($section['name']), 'video/'.$section['code']);
+
+	if (!empty($element['id']))
+	{
+		drupal_set_title($element['name']);
+
+		$breadcrumb[] = l($element['name'], 'video/'.$section['code'].'/'.$element['iblock_section_id']);
+		drupal_set_breadcrumb($breadcrumb);
+
+		$carousel = elements_contents($section['id']);
+		p($carousel[0]->el_id);
+		$element['code'] = $section['code'];
+		$page_array = theme('alutech_video_content', array('element' => $element, 'carousel' => $carousel));
+
+		return $page_array;
+	}
+	else
+		drupal_goto('video/'.$section['code']);
+
+}
+
+/*
+ * Инициализация шаблонов вывода контента
+ * */
+function alutech_video_theme()
+{
+	return array(
+		'alutech_video_page'    => array(
+			'variables' => array(
+				'links' => NULL
+			),
+			'template'  => 'video-page',
+		),
+		'alutech_video_content' => array(
+			'variables' => array(
+				'items' => NULL
+			),
+			'template'  => 'video-content',
+		)
+	);
+}
+
+/**
+ * Implements hook_preprocess_HOOK().
+ * Закостылим вывод PAGE.
+ * Ловим видеораздел и добавляем ему меню слева.
+ */
+function alutech_video_preprocess_page(&$variables)
+{
+	if (isset($variables['theme_hook_suggestions'][0]) && $variables['theme_hook_suggestions'][0] == 'page__video')
+	{
+		$variables['page']['left']['menu_block_14'] = alutech_video_create_left_menu();
+
+		global $language;
+		$menu_name = db_select('menu_custom', 'n')
+			->fields('n', array('menu_name'))
+			->condition('n.language', $language->language)
+			->execute()->fetchAssoc();
+
+		$variables['page']['header']['megamenu_'.$menu_name['menu_name']]['#markup'] = preg_replace('/href=\"(\/.*\/video.?[^\"]*)\"\s+[^>]*class=\"(blueMenu)\"/', 'href="$1" class="$2 active"', $variables['page']['header']['megamenu_'.$menu_name['menu_name']]['#markup']);
+	}
+}
+
+/*
+ * Подгрузка секций
+ * */
+function section_contents($id)
+{
+	$query = db_select('alutech_video_sections', 'n')
+		->fields('n', array('id', 'name', 'depth_level', 'iblock_section_id', 'code'));
+
+	if(isset($id))
+	{
+		if (is_numeric($id))
+			$query->condition('n.id', $id);
+		else
+			$query->condition('n.code', $id);
+
+		return $query->execute()->fetchAssoc();
+	}
+	else
+	{
+		return $query->execute()->fetchAll();
+	}
+}
+
+/*
+ * Подгрузка видео
+ * */
+function elements_contents($code)
+{
+	global $language;
+
+	$query = db_select('alutech_video_elements', 'n')
+		->fields('n', array('el_id', 'lang', 'iblock_section_id', 'name', 'active_from', 'preview_picture', 'preview_text', 'detail_text', 'url', 'size', 'youtube'))
+		->extend('PagerDefault')
+		->limit(10)
+		->orderBy('active_from', 'DESC')
+		->condition('n.lang', $language->prefix);
+
+	if (isset($code))
+		$query->condition('n.iblock_section_id', $code);
+
+	return $query->execute()->fetchAll();
+}
+
+/*
+ * Строим меню слева
+ *
+ * */
+function alutech_video_create_left_menu()
+{
+	$res = array();
+	$page_active = FALSE;
+
+	$array_path = explode("/",current_path());
+	if ($array_path[0] == 'video' )
+		$page_active = $array_path[1];
+
+	$res['#content'][] = array (
+		'#theme' => array ('menu_link__menu_block__14'),
+		'#attributes' => array ('class' => array ((!$page_active && $array_path[0] == 'video' ? 'active-trail' : ''))),
+		'#title' => t('All Videos'),
+		'#href' => 'video',
+		'#localized_options' => array ('alter' => true),
+	);
+
+	$sections = section_contents();
+	foreach ($sections as $section)
+	{
+		if($section->depth_level == 1)
+		{
+			if(elements_contents($section->id))
+			{
+				$res['#content'][$section->id] = array (
+					'#theme' => array ('menu_link__menu_block__14'),
+					'#attributes' => array ('class' => array (($page_active == $section->code ? 'active-trail' : ''))),
+					'#title' => t($section->name),
+					'#href' => 'video/'.$section->code,
+					'#localized_options' => array ('alter' => true),
+				);
+			}
+		}
+	}
+	$res['#theme'] = array ('menu_block_wrapper__14');
+
+	return $res;
+}
+
+/**
+ * Запуск hook_cron() для обновления JSON записей в БД.
+ */
+function alutech_video_cron()
+{
+	// Задаем интервал величиной в сутки
+	$interval = variable_get('alutech_video_interval', 60 * 60 * 168);
+
+	// Проверяем вышло ли время для старта процедуры обновления
+	if (time() >= variable_get('alutech_video_next_execution', 0))
+	{
+		$arVideo = array();
+		$get = video_get_list();
+
+		if($get)
+		{
+			foreach ($get as $key => $value)
+				$arVideo[$key] = $value;
+
+			if(isset($arVideo['sections']))
+				video_sections_write($arVideo['sections']);
+
+			if(isset($arVideo['elements']))
+				video_elements_write($arVideo['elements']);
+		}
+
+		// Перезаписываем переменную для проверки следующего старта обновления БД
+		variable_set('alutech_video_next_execution', time() + $interval);
+	}
+}
