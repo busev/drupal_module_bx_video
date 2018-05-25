@@ -1,1 +1,1 @@
-# drupal_module_bx_video
+# Модуль для Drupal
