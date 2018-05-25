@@ -1,1 +1,6 @@
+# Ignore paths that contain generated content.
 .idea/
+
+# Ignore everything but the "sites" folder ( for non core developer )
+.htaccess
+web.config
